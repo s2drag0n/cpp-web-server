@@ -1,10 +1,14 @@
 #include "HttpConn.h"
 
 #include <fcntl.h>
+#include <strings.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 /* 定义HTTP响应的一些状态信息 */
@@ -122,6 +126,103 @@ HttpConn::LINE_STATUS HttpConn::parse_line() {
             return LINE_STATUS::LINE_BAD;
         }
     }
-
     return LINE_STATUS::LINE_OPEN;
+}
+
+bool HttpConn::read() {
+    if (m_read_idx < +READ_BUFFER_SIZE) {
+        return false;
+    }
+
+    int bytes_read = 0;
+    while (true) {
+        bytes_read = recv(m_sockfd, m_read_buf + m_read_idx,
+                          READ_BUFFER_SIZE - m_read_idx, 0);
+        if (bytes_read == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            return false;
+        } else if (bytes_read == 0) {
+            return false;
+        }
+
+        m_read_idx += bytes_read;
+    }
+    return true;
+}
+
+HttpConn::HTTP_CODE HttpConn::parse_request_line(char *text) {
+    /* 请求行例如
+     * GET /index.html HTTP/1.1
+     * 所以m_url为第一个空格或者'\t'后面的内容
+     */
+    m_url = strpbrk(text, " \t");
+    if (!m_url) {
+        return HTTP_CODE::BAD_REQUEST;
+    }
+    *m_url++ = '\0';
+
+    char *method = text;
+    if (strcasecmp(method, "GET") == 0) {
+        m_method = METHOD::GET;
+    } else {
+        return HTTP_CODE::BAD_REQUEST;
+    }
+
+    m_url += strspn(m_url, " \t");
+    m_version = strpbrk(m_url, " \t");
+    if (!m_version) {
+        return HTTP_CODE::BAD_REQUEST;
+    }
+    *m_version++ = '\0';
+    m_version += strspn(m_version, " \t");
+    if (strcasecmp(m_version, "HTTP/1.1") != 0) {
+        return HTTP_CODE::BAD_REQUEST;
+    }
+
+    if (strncasecmp(m_url, "http://", 7) == 0) {
+        m_url += 7;
+        m_url = strchr(m_url, '/');
+    }
+
+    if (!m_url || m_url[0] != '/') {
+        return HTTP_CODE::BAD_REQUEST;
+    }
+
+    m_check_state = CHECK_STATE::CHECK_STATE_HEADER;
+    return HTTP_CODE::NO_REQUEST;
+}
+
+HttpConn::HTTP_CODE HttpConn::parse_headers(char *text) {
+    if (text[0] == '\0') {
+        if (m_method == METHOD::HEAD) {
+            return HTTP_CODE::GET_REQUEST;
+        }
+
+        if (m_content_length != 0) {
+            m_check_state = CHECK_STATE::CHECK_STATE_CONTENT;
+            return HTTP_CODE::NO_REQUEST;
+        }
+
+        return HTTP_CODE::GET_REQUEST;
+    } else if (strncasecmp(text, "Connection:", 11) == 0) {
+        text += 11;
+        text += strspn(text, " \t");
+        if (strcasecmp(text, "keep-alive") == 0) {
+            m_linger = true;
+        }
+    } else if (strncasecmp(text, "Content-Length:", 15) == 0) {
+        text += 15;
+        text += strspn(text, " \t");
+        m_content_length = atol(text);
+    } else if (strncasecmp(text, "Host:", 5) == 0) {
+        text += 5;
+        text += strspn(text, " \t");
+        m_host = text;
+    } else {
+        printf("oop! unknow header %s\n", text);
+    }
+
+    return HTTP_CODE::NO_REQUEST;
 }
