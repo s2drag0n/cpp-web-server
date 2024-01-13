@@ -5,7 +5,7 @@
 #include <sys/uio.h>
 
 class HttpConn {
-   public:
+  public:
     /* 文件名最大长度 */
     static const int FILENAME_LEN = 200;
     /* 读缓冲区的大小 */
@@ -48,11 +48,11 @@ class HttpConn {
     /* 行的读取状态 */
     enum class LINE_STATUS { LINE_OK = 0, LINE_BAD, LINE_OPEN };
 
-   public:
+  public:
     HttpConn(){};
     ~HttpConn(){};
 
-   public:
+  public:
     /* 初始化新接受的连接 */
     void init(int sockfd, const sockaddr_in &addr);
 
@@ -65,7 +65,7 @@ class HttpConn {
     /* 非阻塞写操作 */
     bool write();
 
-   private:
+  private:
     /* 初始化连接 */
     void init();
     /* 解析HTTP请求 */
@@ -86,19 +86,19 @@ class HttpConn {
     bool add_response(const char *format, ...);
     bool add_content(const char *content);
     bool add_status_line(int status, const char *title);
-    bool add_header(int content_length);
+    bool add_headers(int content_length);
     bool add_content_length(int content_length);
     bool addlinger();
     bool add_blank_line();
 
-   public:
+  public:
     /* 所有的socket上的时间都注册到同一个epoll内核时间表上，所以将epoll文件描述符注册为静态的
      */
     static int m_epollfd;
     /* 统计用户数量 */
     static int m_user_count;
 
-   private:
+  private:
     /* 该HTTP连接的socket个对方的socket地址 */
     int m_sockfd;
     sockaddr_in m_address;
